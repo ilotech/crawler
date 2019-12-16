@@ -12,21 +12,24 @@ import java.util.stream.Collectors;
 
 
 public class WebCrawlerImpl implements Crawler<String> {
-    private final Algorithms.BFS<String> breadthFirstSearch;
+    private final Algorithms.UnorderedSearch<String> breadthFirstSearch;
 
     public WebCrawlerImpl() {
-        Function<String, Set<String>> getNeighboursFunction = URL -> {
+        Function<Node<String>, Set<Node<String>>> getNeighboursFunction = URL -> {
             //2. Fetch the HTML code
             Document document;
             try {
-                document = Jsoup.connect(URL).get();
+                document = Jsoup.connect(URL.getElement()).get();
 
                 //3. Parse the HTML to extract links to other URLs
                 Elements linksOnPage = document.select("a[href]");
 
-                return linksOnPage.stream()
+                Set<String> elements = linksOnPage.stream()
                         .map(page -> page.attr("abs:href"))
                         .collect(Collectors.toSet());
+
+                return elements.stream().map(el -> new Node<>(el, URL.getLevel() + 1)).collect(Collectors.toSet());
+
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -35,11 +38,11 @@ public class WebCrawlerImpl implements Crawler<String> {
         };
 
         //noinspection unchecked
-        this.breadthFirstSearch = Algorithms.BFS.createSingleThreadingBFS(getNeighboursFunction);
+        this.breadthFirstSearch = Algorithms.UnorderedSearch.createConcurrentUnorderedSearch(getNeighboursFunction);
     }
 
     public void crawl(String URL) {
-            breadthFirstSearch.traverse(URL);
+            breadthFirstSearch.traverse(new Node<>(URL, 0));
     }
 
     public static void main(String[] args) {

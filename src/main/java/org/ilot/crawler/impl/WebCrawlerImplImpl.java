@@ -1,5 +1,7 @@
-package org.ilot.crawler;
+package org.ilot.crawler.impl;
 
+import org.ilot.crawler.CrawlerImpl;
+import org.ilot.crawler.algorithms.sequential.BFS;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
@@ -11,11 +13,11 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 
-public class WebCrawlerImpl implements Crawler<String> {
-    private final Algorithms.BFS<String> breadthFirstSearch;
+public class WebCrawlerImplImpl extends CrawlerImpl<String> {
+    private static final Function<String, Set<String>> getNeighboursFunction;
 
-    public WebCrawlerImpl() {
-        Function<String, Set<String>> getNeighboursFunction = URL -> {
+    static {
+        getNeighboursFunction = URL -> {
             //2. Fetch the HTML code
             Document document;
             try {
@@ -33,16 +35,13 @@ public class WebCrawlerImpl implements Crawler<String> {
             //noinspection unchecked
             return Collections.EMPTY_SET;
         };
-
-        //noinspection unchecked
-        this.breadthFirstSearch = Algorithms.BFS.createSingleThreadingBFS(getNeighboursFunction);
     }
 
-    public void crawl(String URL) {
-            breadthFirstSearch.traverse(URL);
+    public WebCrawlerImplImpl() {
+        super(BFS.createTraversing(getNeighboursFunction));
     }
 
     public static void main(String[] args) {
-        new WebCrawlerImpl().crawl("http://www.mkyong.com/");
+        new WebCrawlerImplImpl().crawl("http://www.mkyong.com/");
     }
 }

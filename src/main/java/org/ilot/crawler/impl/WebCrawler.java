@@ -1,6 +1,6 @@
 package org.ilot.crawler.impl;
 
-import org.ilot.crawler.CrawlerImpl;
+import org.ilot.crawler.AbstractCrawler;
 import org.ilot.crawler.algorithms.sequential.BFS;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -13,7 +13,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 
-public class WebCrawlerImplImpl extends CrawlerImpl<String> {
+public class WebCrawler extends AbstractCrawler<String> {
     private static final Function<String, Set<String>> getNeighboursFunction;
 
     static {
@@ -37,11 +37,11 @@ public class WebCrawlerImplImpl extends CrawlerImpl<String> {
         };
     }
 
-    public WebCrawlerImplImpl() {
+    public WebCrawler() {
         super(BFS.createTraversing(getNeighboursFunction));
     }
 
     public static void main(String[] args) {
-        new WebCrawlerImplImpl().crawl("http://www.mkyong.com/");
+        new WebCrawler().crawl("http://www.mkyong.com/");
     }
 }

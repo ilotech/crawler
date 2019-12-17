@@ -4,10 +4,10 @@ import org.ilot.crawler.algorithms.GraphAlgorithm;
 
 import java.util.Optional;
 
-public abstract class CrawlerImpl<E> implements Crawler<E> {
+public abstract class AbstractCrawler<E> implements Crawler<E> {
     private final GraphAlgorithm<E> graphAlgorithm;
 
-    public CrawlerImpl(GraphAlgorithm<E> graphAlgorithm) {
+    public AbstractCrawler(GraphAlgorithm<E> graphAlgorithm) {
         this.graphAlgorithm = graphAlgorithm;
     }
 

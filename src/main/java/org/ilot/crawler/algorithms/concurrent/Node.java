@@ -24,13 +24,12 @@ public class Node<E> {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         Node<?> node = (Node<?>) o;
-        return level == node.level &&
-                Objects.equals(element, node.element);
+        return Objects.equals(element, node.element);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(element, level);
+        return Objects.hash(element);
     }
 
     @Override

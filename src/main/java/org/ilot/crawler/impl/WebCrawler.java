@@ -1,7 +1,9 @@
 package org.ilot.crawler.impl;
 
 import org.ilot.crawler.AbstractCrawler;
-import org.ilot.crawler.algorithms.sequential.BFS;
+import org.ilot.crawler.algorithms.concurrent.ExecutorServiceFactory;
+import org.ilot.crawler.algorithms.concurrent.ExecutorServiceType;
+import org.ilot.crawler.algorithms.concurrent.UnorderedSearch;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
@@ -38,7 +40,9 @@ public class WebCrawler extends AbstractCrawler<String> {
     }
 
     public WebCrawler() {
-        super(BFS.createTraversing(getNeighboursFunction));
+        super(new UnorderedSearch<>(ExecutorServiceFactory.createCustomExecutorService(
+                ExecutorServiceType.FORK_JOIN_POOL, 0.95d), getNeighboursFunction, 5000L)
+        );
     }
 
     public static void main(String[] args) {

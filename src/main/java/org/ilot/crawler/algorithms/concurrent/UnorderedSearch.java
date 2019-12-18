@@ -61,6 +61,7 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
             executorService.execute(new UnorderedTraversalTask(node));
             sleep();
         }
+        // TODO implement shutdown policy
         executorService.shutdown();
     }
 
@@ -70,18 +71,14 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
         Assert.state(searchPredicate != null, "Search predicate must be defined when using search function.");
         workDequeue.add(Node.of(rootElement));
         while (awaitNotEmpty()) {
-            if (resultFound) {
-                // TODO implement shutdown policy
-                executorService.shutdown();
-                return Optional.of(searchResult);
-            }
+            if (resultFound) break;
             Node<E> node = workDequeue.poll();
             if (node == null) continue;
             executorService.execute(new UnorderedSearchTask(node));
             sleep();
         }
         executorService.shutdown();
-        return Optional.empty();
+        return resultFound ? Optional.of(searchResult) : Optional.empty();
     }
 
     private boolean awaitNotEmpty() {

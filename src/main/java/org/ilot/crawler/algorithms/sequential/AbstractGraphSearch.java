@@ -4,6 +4,7 @@ import org.ilot.crawler.algorithms.GraphAlgorithm;
 import org.springframework.util.Assert;
 
 import java.util.Deque;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -37,6 +38,7 @@ public abstract class AbstractGraphSearch<E> implements GraphAlgorithm<E> {
         this.searchPredicate = searchPredicate;
     }
 
+    @Override
     public void traverse(E rootElement) {
         Assert.notNull(rootElement, "Root element must not be null!");
         workDequeue.add(rootElement);
@@ -58,6 +60,7 @@ public abstract class AbstractGraphSearch<E> implements GraphAlgorithm<E> {
     }
 
     // TODO revisit method
+    @Override
     public Optional<E> search(E rootElement) {
         Assert.notNull(rootElement, "Root element must not be null!");
         Assert.state(searchPredicate != null, "Search predicate must be defined when using search function.");
@@ -77,6 +80,17 @@ public abstract class AbstractGraphSearch<E> implements GraphAlgorithm<E> {
 
             visited.add(element);
         }
+        return Optional.empty();
+    }
+
+    @Override
+    public void continueTraversingFrom(List<E> nodes) {
+        // TODO implement
+    }
+
+    @Override
+    public Optional<E> continueSearchingFrom(List<E> nodes) {
+        // TODO implement
         return Optional.empty();
     }
 }

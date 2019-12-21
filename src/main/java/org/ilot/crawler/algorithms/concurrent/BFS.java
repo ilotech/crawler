@@ -1,9 +1,8 @@
 package org.ilot.crawler.algorithms.concurrent;
 
 import org.ilot.crawler.algorithms.GraphAlgorithm;
-import org.springframework.util.Assert;
-
 import java.util.Deque;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.*;
@@ -41,6 +40,7 @@ public class BFS<E> implements GraphAlgorithm<E> {
         this.addElement = workDequeue::addLast;
         this.getNeighbours = getNeighbours;
         this.timeout = timeout;
+        this.searchPredicate = e -> false;
     }
 
     public BFS(ExecutorService executorService,
@@ -51,35 +51,43 @@ public class BFS<E> implements GraphAlgorithm<E> {
         this.searchPredicate = searchPredicate;
     }
 
-
     @Override
     public void traverse(E rootElement) {
-        workDequeue.add(Node.of(rootElement, 0));
-        Phaser phaser = new Phaser(1);
-        while (awaitNotEmpty()) {
-            Node<E> node = workDequeue.poll();
-            if (node == null) continue;
-            executorService.execute(new TraversalTask(node, phaser));
-            if (node.getLevel() != phaser.getPhase()) phaser.arriveAndAwaitAdvance();
-        }
-        // TODO implement shutdown policy
-        executorService.shutdownNow();
+        workDequeue.add(Node.of(rootElement));
+        executeSearch();
     }
 
     // TODO revisit
     @Override
     public Optional<E> search(E rootElement) {
-        Assert.state(searchPredicate != null, "Search predicate must be defined when using search function.");
-        workDequeue.add(Node.of(rootElement, 0));
+        workDequeue.add(Node.of(rootElement));
+        executeSearch();
+        return resultFound ? Optional.of(searchResult) : Optional.empty();
+    }
+
+    @Override
+    public void continueTraversingFrom(List<E> elements) {
+        workDequeue.addAll(elements.stream().map(Node::of).collect(Collectors.toList()));
+        executeSearch();
+    }
+
+    @Override
+    public Optional<E> continueSearchingFrom(List<E> elements) {
+        workDequeue.addAll(elements.stream().map(Node::of).collect(Collectors.toList()));
+        executeSearch();
+        return resultFound ? Optional.of(searchResult) : Optional.empty();
+    }
+
+    private void executeSearch() {
         Phaser phaser = new Phaser(1);
         while (awaitNotEmpty() && !resultFound) {
             Node<E> node = workDequeue.poll();
             if (node == null) continue;
-            executorService.execute(new SearchTask(node, phaser));
+            executorService.execute(new Worker(node, phaser));
             if (node.getLevel() != phaser.getPhase()) phaser.arriveAndAwaitAdvance();
         }
+        // TODO implement shutdown policy
         executorService.shutdownNow();
-        return resultFound ? Optional.of(searchResult) : Optional.empty();
     }
 
     private boolean awaitNotEmpty() {
@@ -107,60 +115,23 @@ public class BFS<E> implements GraphAlgorithm<E> {
         }
     }
 
-    private class TraversalTask implements Runnable {
+    private class Worker implements Runnable {
         private final Node<E> node;
         private final Phaser phaser;
 
-        private TraversalTask(Node<E> node, Phaser phaser) {
+        private Worker(Node<E> node, Phaser phaser) {
             this.node = node;
             this.phaser = phaser;
         }
 
         @Override
         public void run() {
-            if (visited.contains(node)) return;
-            if (Thread.currentThread().isInterrupted()) return;
-            // TODO how to timeout if #getNeighbours is taking too long? future.get? #getNeighbours should support timeouts
-            phaser.register();
-            try {
-                getNeighbours.apply(node.getElement())
-                        .stream()
-                        .filter(e -> !visited.contains(Node.of(e)))
-                        .map(e -> Node.of(e, node.getLevel() + 1))
-                        .forEach(addElement);
-
-                visited.add(node);
-                signalWaitingThread();
-                System.out.println("Phaser arriving");
-            } catch (Exception e) {
-                // TODO rethrow
-            }
-            finally {
-                phaser.arriveAndDeregister();
-            }
-        }
-    }
-
-    private class SearchTask implements Runnable {
-        private final Node<E> node;
-        private final Phaser phaser;
-
-        private SearchTask(Node<E> node, Phaser phaser) {
-            this.node = node;
-            this.phaser = phaser;
-        }
-
-        @Override
-        public void run() {
-            if (searchPredicate.test(node)) {
-                resultFound = true;
-                searchResult = node.getElement();
-                return;
-            }
+            if (isResult(node)) return;
             if (visited.contains(node)) return;
             if (Thread.currentThread().isInterrupted()) return;
             phaser.register();
             try {
+                // TODO how to timeout if #getNeighbours is taking too long? future.get? #getNeighbours should support timeouts
                 getNeighbours.apply(node.getElement())
                         .stream()
                         .filter(e -> !visited.contains(Node.of(e)))
@@ -169,24 +140,33 @@ public class BFS<E> implements GraphAlgorithm<E> {
                         .forEach(addElement);
 
                 visited.add(node);
-                signalWaitingThread();
+                signalMainThread();
             } catch (Exception e) {
                 // TODO rethrow
             } finally {
                 phaser.arriveAndDeregister();
             }
         }
-    }
 
-    private void signalWaitingThread() {
-        try {
-            lock.lock();
-            isEmpty.signal();
-        } catch (IllegalMonitorStateException e) {
-            // shouldn't be thrown
-            // TODO rethrow
-        } finally {
-            lock.unlock();
+        private void signalMainThread() {
+            try {
+                lock.lock();
+                isEmpty.signal();
+            } catch (IllegalMonitorStateException e) {
+                // shouldn't be thrown
+                // TODO rethrow
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private boolean isResult(Node<E> node) {
+            if (!searchPredicate.test(node)) {
+                return false;
+            }
+            resultFound = true;
+            searchResult = node.getElement();
+            return true;
         }
     }
 }

@@ -1,9 +1,9 @@
 package org.ilot.crawler.algorithms.concurrent;
 
 import org.ilot.crawler.algorithms.GraphAlgorithm;
-import org.springframework.util.Assert;
 
 import java.util.Deque;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,8 +36,8 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
     private long timeout;
 
     public UnorderedSearch(ExecutorService executorService,
-                            Function<E, Set<E>> getNeighbours,
-                            long timeout) {
+                           Function<E, Set<E>> getNeighbours,
+                           long timeout) {
         this.executorService = executorService;
         this.workDequeue = new ConcurrentLinkedDeque<>();
         this.visited = ConcurrentHashMap.newKeySet();
@@ -47,9 +47,9 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
     }
 
     public UnorderedSearch(ExecutorService executorService,
-                            Function<E, Set<E>> getNeighbours,
-                            long timeout,
-                            Predicate<Node<E>> searchPredicate) {
+                           Function<E, Set<E>> getNeighbours,
+                           long timeout,
+                           Predicate<Node<E>> searchPredicate) {
         this(executorService, getNeighbours, timeout);
         this.searchPredicate = searchPredicate;
     }
@@ -70,16 +70,28 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
     // TODO revisit
     @Override
     public Optional<E> search(E rootElement) {
-        Assert.state(searchPredicate != null, "Search predicate must be defined when using search function.");
+        Node<E> rootNode = Node.of(rootElement, 0);
+        if (searchPredicate.test(rootNode)) return Optional.of(rootElement);
         workDequeue.add(Node.of(rootElement, 0));
         while (awaitNotEmpty() && !resultFound) {
             Node<E> node = workDequeue.poll();
             if (node == null) continue;
             executorService.execute(new SearchTask(node));
-            sleep(); // for testing hack until saturation policy is implemented
+            sleep(); // for testing until saturation policy is implemented
         }
         executorService.shutdownNow();
         return resultFound ? Optional.of(searchResult) : Optional.empty();
+    }
+
+    @Override
+    public void continueTraversingFrom(List<E> nodes) {
+        // TODO implement
+    }
+
+    @Override
+    public Optional<E> continueSearchingFrom(List<E> nodes) {
+        // TODO implement
+        return Optional.empty();
     }
 
     private boolean awaitNotEmpty() {
@@ -149,11 +161,6 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
 
         @Override
         public void run() {
-            if (searchPredicate.test(node)) {
-                resultFound = true;
-                searchResult = node.getElement();
-                return;
-            }
             if (visited.contains(node)) return;
             if (Thread.currentThread().isInterrupted()) return;
             getNeighbours.apply(node.getElement())
@@ -161,7 +168,14 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
                     .filter(e -> !visited.contains(Node.of(e)))
                     .map(e -> Node.of(e, node.getLevel() + 1))
                     .collect(Collectors.toSet())
-                    .forEach(addElement);
+                    .forEach(neighbour -> {
+                        if (searchPredicate.test(node)) {
+                            resultFound = true;
+                            searchResult = node.getElement();
+                            return;
+                        }
+                        addElement.accept(neighbour);
+                    });
 
             visited.add(node);
             signalWaitingThread();

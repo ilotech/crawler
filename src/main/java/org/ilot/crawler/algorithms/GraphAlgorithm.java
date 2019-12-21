@@ -1,5 +1,6 @@
 package org.ilot.crawler.algorithms;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface GraphAlgorithm<E> {
@@ -7,6 +8,7 @@ public interface GraphAlgorithm<E> {
     Optional<E> search(E rootElement);
     // TODO implement
 //    void stop();
-//    void continueTraversingFrom(List<E> nodes);
-//    void continueSearchingFrom(List<E> nodes);
+//    void abort();
+    void continueTraversingFrom(List<E> nodes);
+    Optional<E> continueSearchingFrom(List<E> nodes);
 }

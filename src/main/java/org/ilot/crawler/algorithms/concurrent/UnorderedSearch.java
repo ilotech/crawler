@@ -60,8 +60,8 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
         while (awaitNotEmpty()) {
             Node<E> node = workDequeue.poll();
             if (node == null) continue;
-            executorService.execute(new UnorderedTraversalTask(node));
-            sleep();
+            executorService.execute(new TraversalTask(node));
+            sleep(); // for testing until saturation policy is implemented
         }
         // TODO implement shutdown policy
         executorService.shutdownNow();
@@ -72,12 +72,11 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
     public Optional<E> search(E rootElement) {
         Assert.state(searchPredicate != null, "Search predicate must be defined when using search function.");
         workDequeue.add(Node.of(rootElement, 0));
-        while (awaitNotEmpty()) {
-            if (resultFound) break;
+        while (awaitNotEmpty() && !resultFound) {
             Node<E> node = workDequeue.poll();
             if (node == null) continue;
-            executorService.execute(new UnorderedSearchTask(node));
-            sleep();
+            executorService.execute(new SearchTask(node));
+            sleep(); // for testing hack until saturation policy is implemented
         }
         executorService.shutdownNow();
         return resultFound ? Optional.of(searchResult) : Optional.empty();
@@ -89,7 +88,6 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
         }
         try {
             lock.lock();
-            System.out.println(Thread.currentThread() + "\tAcquired lock" + "\t||\tdeque size -> " + workDequeue.size());
             {
                 while (workDequeue.isEmpty()) {
                     try {
@@ -105,7 +103,6 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
             // shouldn't be thrown
             return false;
         } finally {
-            System.out.println(Thread.currentThread() + "\tReleasing lock" + "\t||\tdeque size -> " + workDequeue.size());
             lock.unlock();
         }
     }
@@ -119,10 +116,10 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
         }
     }
 
-    private class UnorderedTraversalTask implements Runnable {
+    private class TraversalTask implements Runnable {
         private final Node<E> node;
 
-        private UnorderedTraversalTask(Node<E> node) {
+        private TraversalTask(Node<E> node) {
             this.node = node;
         }
 
@@ -130,7 +127,6 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
         public void run() {
             if (visited.contains(node)) return;
             if (Thread.currentThread().isInterrupted()) return;
-            System.out.println(Thread.currentThread() + "\tCurrent node -> " + node.toString() + "\t||\tdeque size -> " + workDequeue.size());
             // TODO how to timeout if #getNeighbours is taking too long? future.get? #getNeighbours should support timeouts
             getNeighbours.apply(node.getElement())
                     .stream()
@@ -140,15 +136,14 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
                     .forEach(addElement);
 
             visited.add(node);
-            System.out.println(Thread.currentThread() + "\tVisited size -> " + visited.size());
             signalWaitingThread();
         }
     }
 
-    private class UnorderedSearchTask implements Runnable {
+    private class SearchTask implements Runnable {
         private final Node<E> node;
 
-        private UnorderedSearchTask(Node<E> node) {
+        private SearchTask(Node<E> node) {
             this.node = node;
         }
 
@@ -161,7 +156,6 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
             }
             if (visited.contains(node)) return;
             if (Thread.currentThread().isInterrupted()) return;
-            System.out.println(Thread.currentThread() + "\tCurrent node -> " + node.toString() + "\t||\tdeque size -> " + workDequeue.size());
             getNeighbours.apply(node.getElement())
                     .stream()
                     .filter(e -> !visited.contains(Node.of(e)))
@@ -170,7 +164,6 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
                     .forEach(addElement);
 
             visited.add(node);
-            System.out.println(Thread.currentThread() + "\tVisited size -> " + visited.size());
             signalWaitingThread();
         }
     }
@@ -179,9 +172,9 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
         try {
             lock.lock();
             isEmpty.signal();
-            System.out.println(Thread.currentThread() + "\tSignaling main thread to release the lock" + "\t||\tdeque size -> " + workDequeue.size());
         } catch (IllegalMonitorStateException e) {
-            // TODO log
+            // shouldn't be thrown
+            // TODO rethrow
         } finally {
             lock.unlock();
         }

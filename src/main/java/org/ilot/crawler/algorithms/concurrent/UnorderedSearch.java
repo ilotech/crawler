@@ -47,7 +47,7 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
         this.getNeighbours = getNeighbours;
         this.isEmptyTimeout = isEmptyTimeout;
         this.getNeighboursTimeout = getNeighboursTimeout;
-        this.searchPredicate = n -> true;
+        this.searchPredicate = n -> false;
     }
 
     public UnorderedSearch(ExecutorService executorService,

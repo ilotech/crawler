@@ -10,18 +10,22 @@ import java.util.concurrent.*;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class BFS<E> implements GraphAlgorithm<E> {
+    private final ExecutorService executorService;
     private final Deque<Node<E>> workDequeue;
     private final Set<Node<E>> visited;
-    private final Consumer<Node<E>> addElement;
-    private final Function<E, Set<E>> getNeighbours;
 
-    private ExecutorService executorService;
+    private final Consumer<Node<E>> addElement;
+    private final BiFunction<E, Long, Set<E>> getNeighbours;
+
+    private final long isEmptyTimeout;
+    private final long getNeighboursTimeout;
+
 
     private final Lock lock = new ReentrantLock(true);
     private final Condition isEmpty = lock.newCondition();
@@ -30,25 +34,27 @@ public class BFS<E> implements GraphAlgorithm<E> {
     private volatile boolean resultFound;
 
     private Predicate<Node<E>> searchPredicate;
-    private long timeout;
 
     public BFS(ExecutorService executorService,
-               Function<E, Set<E>> getNeighbours,
-               long timeout) {
+               BiFunction<E, Long, Set<E>> getNeighbours,
+               long isEmptyTimeout,
+               long getNeighboursTimeout) {
         this.executorService = executorService;
         this.workDequeue = new ConcurrentLinkedDeque<>();
         this.visited = ConcurrentHashMap.newKeySet();
         this.addElement = workDequeue::addLast;
         this.getNeighbours = getNeighbours;
-        this.timeout = timeout;
+        this.isEmptyTimeout = isEmptyTimeout;
+        this.getNeighboursTimeout = getNeighboursTimeout;
         this.searchPredicate = e -> false;
     }
 
     public BFS(ExecutorService executorService,
-               Function<E, Set<E>> getNeighbours,
-               long timeout,
+               BiFunction<E, Long, Set<E>> getNeighbours,
+               long isEmptyTimeout,
+               long getNeighboursTimeout,
                Predicate<Node<E>> searchPredicate) {
-        this(executorService, getNeighbours, timeout);
+        this(executorService, getNeighbours, isEmptyTimeout, getNeighboursTimeout);
         this.searchPredicate = searchPredicate;
     }
 
@@ -68,13 +74,15 @@ public class BFS<E> implements GraphAlgorithm<E> {
 
     @Override
     public void continueTraversingFrom(List<E> elements) {
-        workDequeue.addAll(elements.stream().map(Node::of).collect(Collectors.toList()));
+        // TODO make sure list is sorted
+        workDequeue.addAll(elements.parallelStream().map(Node::of).collect(Collectors.toList()));
         internalSearch();
     }
 
     @Override
     public Optional<E> continueSearchingFrom(List<E> elements) {
-        workDequeue.addAll(elements.stream().map(Node::of).collect(Collectors.toList()));
+        // TODO make sure list is sorted
+        workDequeue.addAll(elements.parallelStream().map(Node::of).collect(Collectors.toList()));
         internalSearch();
         return resultFound ? Optional.of(searchResult) : Optional.empty();
     }
@@ -101,7 +109,7 @@ public class BFS<E> implements GraphAlgorithm<E> {
             {
                 while (workDequeue.isEmpty()) {
                     try {
-                        if (!isEmpty.await(timeout, TimeUnit.MILLISECONDS)) return false;
+                        if (!isEmpty.await(isEmptyTimeout, TimeUnit.MILLISECONDS)) return false;
                     } catch (InterruptedException ignored) {
                         // nobody should interrupt the main thread
                         return false;
@@ -132,8 +140,7 @@ public class BFS<E> implements GraphAlgorithm<E> {
                 if (isResult(node)) return;
                 if (visited.contains(node)) return;
                 if (Thread.currentThread().isInterrupted()) return;
-                // TODO how to timeout if #getNeighbours is taking too long? future.get? #getNeighbours should support timeouts
-                getNeighbours.apply(node.getElement())
+                getNeighbours.apply(node.getElement(), getNeighboursTimeout)
                         .stream()
                         .filter(e -> !visited.contains(Node.of(e)))
                         .map(e -> Node.of(e, node.getLevel() + 1))

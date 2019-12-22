@@ -11,19 +11,19 @@ import org.jsoup.select.Elements;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Set;
-import java.util.function.Function;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 
 public class WebCrawler extends AbstractCrawler<String> {
-    private static final Function<String, Set<String>> getNeighboursFunction;
+    private static final BiFunction<String, Long, Set<String>> getNeighboursFunction;
 
     static {
-        getNeighboursFunction = URL -> {
+        getNeighboursFunction = (url, timeout) -> {
             //2. Fetch the HTML code
             Document document;
             try {
-                document = Jsoup.connect(URL).get();
+                document = Jsoup.connect(url).timeout(timeout.intValue()).get();
 
                 //3. Parse the HTML to extract links to other URLs
                 Elements linksOnPage = document.select("a[href]");
@@ -32,7 +32,7 @@ public class WebCrawler extends AbstractCrawler<String> {
                         .map(page -> page.attr("abs:href"))
                         .collect(Collectors.toSet());
             } catch (IOException e) {
-                e.printStackTrace();
+                // TODO handle timeouts
             }
             //noinspection unchecked
             return Collections.EMPTY_SET;
@@ -41,7 +41,7 @@ public class WebCrawler extends AbstractCrawler<String> {
 
     public WebCrawler() {
         super(new BFS<>(ExecutorServiceFactory.createCustomExecutorService(
-                ExecutorServiceType.FORK_JOIN_POOL, 0.98d), getNeighboursFunction, 5000L)
+                ExecutorServiceType.FORK_JOIN_POOL, 0.98d), getNeighboursFunction, 5000L, 3000L)
         );
     }
 

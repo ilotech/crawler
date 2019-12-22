@@ -1,6 +1,7 @@
 package org.ilot.crawler.algorithms.concurrent;
 
 import org.ilot.crawler.algorithms.GraphAlgorithm;
+
 import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
@@ -54,35 +55,36 @@ public class BFS<E> implements GraphAlgorithm<E> {
     @Override
     public void traverse(E rootElement) {
         workDequeue.add(Node.of(rootElement));
-        executeSearch();
+        internalSearch();
     }
 
     // TODO revisit
     @Override
     public Optional<E> search(E rootElement) {
         workDequeue.add(Node.of(rootElement));
-        executeSearch();
+        internalSearch();
         return resultFound ? Optional.of(searchResult) : Optional.empty();
     }
 
     @Override
     public void continueTraversingFrom(List<E> elements) {
         workDequeue.addAll(elements.stream().map(Node::of).collect(Collectors.toList()));
-        executeSearch();
+        internalSearch();
     }
 
     @Override
     public Optional<E> continueSearchingFrom(List<E> elements) {
         workDequeue.addAll(elements.stream().map(Node::of).collect(Collectors.toList()));
-        executeSearch();
+        internalSearch();
         return resultFound ? Optional.of(searchResult) : Optional.empty();
     }
 
-    private void executeSearch() {
+    private void internalSearch() {
         Phaser phaser = new Phaser(1);
         while (awaitNotEmpty() && !resultFound) {
             Node<E> node = workDequeue.poll();
             if (node == null) continue;
+            phaser.register();
             executorService.execute(new Worker(node, phaser));
             if (node.getLevel() != phaser.getPhase()) phaser.arriveAndAwaitAdvance();
         }
@@ -126,11 +128,10 @@ public class BFS<E> implements GraphAlgorithm<E> {
 
         @Override
         public void run() {
-            if (isResult(node)) return;
-            if (visited.contains(node)) return;
-            if (Thread.currentThread().isInterrupted()) return;
-            phaser.register();
             try {
+                if (isResult(node)) return;
+                if (visited.contains(node)) return;
+                if (Thread.currentThread().isInterrupted()) return;
                 // TODO how to timeout if #getNeighbours is taking too long? future.get? #getNeighbours should support timeouts
                 getNeighbours.apply(node.getElement())
                         .stream()
@@ -140,7 +141,7 @@ public class BFS<E> implements GraphAlgorithm<E> {
                         .forEach(addElement);
 
                 visited.add(node);
-                signalMainThread();
+                signalNotEmpty();
             } catch (Exception e) {
                 // TODO rethrow
             } finally {
@@ -148,7 +149,7 @@ public class BFS<E> implements GraphAlgorithm<E> {
             }
         }
 
-        private void signalMainThread() {
+        private void signalNotEmpty() {
             try {
                 lock.lock();
                 isEmpty.signal();

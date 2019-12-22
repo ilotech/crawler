@@ -22,18 +22,16 @@ public class BFS<E> implements GraphAlgorithm<E> {
 
     private final Consumer<Node<E>> addElement;
     private final BiFunction<E, Long, Set<E>> getNeighbours;
+    private Predicate<Node<E>> searchPredicate;
 
     private final long isEmptyTimeout;
     private final long getNeighboursTimeout;
-
 
     private final Lock lock = new ReentrantLock(true);
     private final Condition isEmpty = lock.newCondition();
 
     private volatile E searchResult;
     private volatile boolean resultFound;
-
-    private Predicate<Node<E>> searchPredicate;
 
     public BFS(ExecutorService executorService,
                BiFunction<E, Long, Set<E>> getNeighbours,
@@ -93,7 +91,7 @@ public class BFS<E> implements GraphAlgorithm<E> {
             Node<E> node = workDequeue.poll();
             if (node == null) continue;
             phaser.register();
-            executorService.execute(new Worker(node, phaser));
+            executorService.execute(new Worker<>(this, node, phaser));
             if (node.getLevel() != phaser.getPhase()) phaser.arriveAndAwaitAdvance();
         }
         // TODO implement shutdown policy
@@ -125,11 +123,13 @@ public class BFS<E> implements GraphAlgorithm<E> {
         }
     }
 
-    private class Worker implements Runnable {
+    private static class Worker<E> implements Runnable {
+        private final BFS<E> bfs;
         private final Node<E> node;
         private final Phaser phaser;
 
-        private Worker(Node<E> node, Phaser phaser) {
+        private Worker(BFS<E> bfs, Node<E> node, Phaser phaser) {
+            this.bfs = bfs;
             this.node = node;
             this.phaser = phaser;
         }
@@ -138,16 +138,16 @@ public class BFS<E> implements GraphAlgorithm<E> {
         public void run() {
             try {
                 if (isResult(node)) return;
-                if (visited.contains(node)) return;
+                if (bfs.visited.contains(node)) return;
                 if (Thread.currentThread().isInterrupted()) return;
-                getNeighbours.apply(node.getElement(), getNeighboursTimeout)
+                bfs.getNeighbours.apply(node.getElement(), bfs.getNeighboursTimeout)
                         .stream()
-                        .filter(e -> !visited.contains(Node.of(e)))
+                        .filter(e -> !bfs.visited.contains(Node.of(e)))
                         .map(e -> Node.of(e, node.getLevel() + 1))
                         .collect(Collectors.toSet())
-                        .forEach(addElement);
+                        .forEach(bfs.addElement);
 
-                visited.add(node);
+                bfs.visited.add(node);
                 signalNotEmpty();
             } catch (Exception e) {
                 // TODO rethrow
@@ -158,22 +158,22 @@ public class BFS<E> implements GraphAlgorithm<E> {
 
         private void signalNotEmpty() {
             try {
-                lock.lock();
-                isEmpty.signal();
+                bfs.lock.lock();
+                bfs.isEmpty.signal();
             } catch (IllegalMonitorStateException e) {
                 // shouldn't be thrown
                 // TODO rethrow
             } finally {
-                lock.unlock();
+                bfs.lock.unlock();
             }
         }
 
         private boolean isResult(Node<E> node) {
-            if (!searchPredicate.test(node)) {
+            if (!bfs.searchPredicate.test(node)) {
                 return false;
             }
-            resultFound = true;
-            searchResult = node.getElement();
+            bfs.resultFound = true;
+            bfs.searchResult = node.getElement();
             return true;
         }
     }

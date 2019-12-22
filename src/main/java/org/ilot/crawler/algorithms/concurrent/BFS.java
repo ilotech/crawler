@@ -44,7 +44,7 @@ public class BFS<E> implements GraphAlgorithm<E> {
         this.getNeighbours = getNeighbours;
         this.isEmptyTimeout = isEmptyTimeout;
         this.getNeighboursTimeout = getNeighboursTimeout;
-        this.searchPredicate = e -> false;
+        this.searchPredicate = n -> false;
     }
 
     public BFS(ExecutorService executorService,

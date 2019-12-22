@@ -13,18 +13,22 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class UnorderedSearch<E> implements GraphAlgorithm<E> {
+    private final ExecutorService executorService;
     private final Deque<Node<E>> workDequeue;
     private final Set<Node<E>> visited;
-    private final Consumer<Node<E>> addElement;
-    private final Function<E, Set<E>> getNeighbours;
 
-    private ExecutorService executorService;
+    private final Consumer<Node<E>> addElement;
+    private final BiFunction<E, Long, Set<E>> getNeighbours;
+    private Predicate<Node<E>> searchPredicate;
+
+    private final long isEmptyTimeout;
+    private final long getNeighboursTimeout;
 
     private final Lock lock = new ReentrantLock(true);
     private final Condition isEmpty = lock.newCondition();
@@ -32,39 +36,35 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
     private volatile E searchResult;
     private volatile boolean resultFound;
 
-    private Predicate<Node<E>> searchPredicate;
-    private long timeout;
-
     public UnorderedSearch(ExecutorService executorService,
-                           Function<E, Set<E>> getNeighbours,
-                           long timeout) {
+                           BiFunction<E, Long, Set<E>> getNeighbours,
+                           long isEmptyTimeout,
+                           long getNeighboursTimeout) {
         this.executorService = executorService;
         this.workDequeue = new ConcurrentLinkedDeque<>();
         this.visited = ConcurrentHashMap.newKeySet();
         this.addElement = workDequeue::addLast;
         this.getNeighbours = getNeighbours;
-        this.timeout = timeout;
+        this.isEmptyTimeout = isEmptyTimeout;
+        this.getNeighboursTimeout = getNeighboursTimeout;
+        this.searchPredicate = n -> true;
     }
 
     public UnorderedSearch(ExecutorService executorService,
-                           Function<E, Set<E>> getNeighbours,
-                           long timeout,
+                           BiFunction<E, Long, Set<E>> getNeighbours,
+                           long isEmptyTimeout,
+                           long getNeighboursTimeout,
                            Predicate<Node<E>> searchPredicate) {
-        this(executorService, getNeighbours, timeout);
+        this(executorService, getNeighbours, isEmptyTimeout, getNeighboursTimeout);
         this.searchPredicate = searchPredicate;
     }
 
     @Override
     public void traverse(E rootElement) {
         workDequeue.add(Node.of(rootElement, 0));
-        while (awaitNotEmpty()) {
-            Node<E> node = workDequeue.poll();
-            if (node == null) continue;
-            executorService.execute(new TraversalTask(node));
-            sleep(); // for testing until saturation policy is implemented
-        }
+        internalSearch();
         // TODO implement shutdown policy
-        executorService.shutdownNow();
+
     }
 
     // TODO revisit
@@ -72,26 +72,33 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
     public Optional<E> search(E rootElement) {
         Node<E> rootNode = Node.of(rootElement, 0);
         if (searchPredicate.test(rootNode)) return Optional.of(rootElement);
-        workDequeue.add(Node.of(rootElement, 0));
-        while (awaitNotEmpty() && !resultFound) {
-            Node<E> node = workDequeue.poll();
-            if (node == null) continue;
-            executorService.execute(new SearchTask(node));
-            sleep(); // for testing until saturation policy is implemented
-        }
-        executorService.shutdownNow();
+        internalSearch();
         return resultFound ? Optional.of(searchResult) : Optional.empty();
     }
 
-    @Override
-    public void continueTraversingFrom(List<E> nodes) {
-        // TODO implement
+    private void internalSearch() {
+        while (awaitNotEmpty() && !resultFound) {
+            Node<E> node = workDequeue.poll();
+            if (node == null) continue;
+            executorService.execute(new Worker<>(this, node));
+            sleep(); // for testing until saturation policy is implemented
+        }
+        executorService.shutdownNow();
     }
 
     @Override
-    public Optional<E> continueSearchingFrom(List<E> nodes) {
-        // TODO implement
-        return Optional.empty();
+    public void continueTraversingFrom(List<E> elements) {
+        // TODO make sure list is sorted
+        workDequeue.addAll(elements.parallelStream().map(Node::of).collect(Collectors.toList()));
+        internalSearch();
+    }
+
+    @Override
+    public Optional<E> continueSearchingFrom(List<E> elements) {
+        // TODO make sure list is sorted
+        workDequeue.addAll(elements.parallelStream().map(Node::of).collect(Collectors.toList()));
+        internalSearch();
+        return resultFound ? Optional.of(searchResult) : Optional.empty();
     }
 
     private boolean awaitNotEmpty() {
@@ -103,7 +110,7 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
             {
                 while (workDequeue.isEmpty()) {
                     try {
-                        if (!isEmpty.await(timeout, TimeUnit.MILLISECONDS)) return false;
+                        if (!isEmpty.await(isEmptyTimeout, TimeUnit.MILLISECONDS)) return false;
                     } catch (InterruptedException ignored) {
                         // nobody should interrupt the main thread
                         return false;
@@ -128,69 +135,50 @@ public class UnorderedSearch<E> implements GraphAlgorithm<E> {
         }
     }
 
-    private class TraversalTask implements Runnable {
+    private static class Worker<E> implements Runnable {
+        private final UnorderedSearch<E> us;
         private final Node<E> node;
 
-        private TraversalTask(Node<E> node) {
+        private Worker(UnorderedSearch<E> us, Node<E> node) {
+            this.us = us;
             this.node = node;
         }
 
         @Override
         public void run() {
-            if (visited.contains(node)) return;
+            if (us.visited.contains(node)) return;
             if (Thread.currentThread().isInterrupted()) return;
-            // TODO how to timeout if #getNeighbours is taking too long? future.get? #getNeighbours should support timeouts
-            getNeighbours.apply(node.getElement())
+            Set<Node<E>> nodes = us.getNeighbours.apply(node.getElement(), us.getNeighboursTimeout)
                     .stream()
-                    .filter(e -> !visited.contains(Node.of(e)))
+                    .filter(e -> !us.visited.contains(Node.of(e)))
                     .map(e -> Node.of(e, node.getLevel() + 1))
-                    .collect(Collectors.toSet())
-                    .forEach(addElement);
+                    .collect(Collectors.toSet());
 
-            visited.add(node);
+            if (nodes.stream().anyMatch(this::isResult)) return;
+            nodes.forEach(us.addElement);
+            us.visited.add(node);
             signalWaitingThread();
         }
-    }
 
-    private class SearchTask implements Runnable {
-        private final Node<E> node;
-
-        private SearchTask(Node<E> node) {
-            this.node = node;
+        private void signalWaitingThread() {
+            try {
+                us.lock.lock();
+                us.isEmpty.signal();
+            } catch (IllegalMonitorStateException e) {
+                // shouldn't be thrown
+                // TODO rethrow
+            } finally {
+                us.lock.unlock();
+            }
         }
 
-        @Override
-        public void run() {
-            if (visited.contains(node)) return;
-            if (Thread.currentThread().isInterrupted()) return;
-            getNeighbours.apply(node.getElement())
-                    .stream()
-                    .filter(e -> !visited.contains(Node.of(e)))
-                    .map(e -> Node.of(e, node.getLevel() + 1))
-                    .collect(Collectors.toSet())
-                    .forEach(neighbour -> {
-                        if (searchPredicate.test(node)) {
-                            resultFound = true;
-                            searchResult = node.getElement();
-                            return;
-                        }
-                        addElement.accept(neighbour);
-                    });
-
-            visited.add(node);
-            signalWaitingThread();
-        }
-    }
-
-    private void signalWaitingThread() {
-        try {
-            lock.lock();
-            isEmpty.signal();
-        } catch (IllegalMonitorStateException e) {
-            // shouldn't be thrown
-            // TODO rethrow
-        } finally {
-            lock.unlock();
+        private boolean isResult(Node<E> node) {
+            if (!us.searchPredicate.test(node)) {
+                return false;
+            }
+            us.resultFound = true;
+            us.searchResult = node.getElement();
+            return true;
         }
     }
 }

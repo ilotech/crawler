@@ -12,28 +12,28 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-public abstract class AbstractGraphSearch<E> implements GraphAlgorithm<E> {
+public abstract class AbstractGraphAlgorithm<E> implements GraphAlgorithm<E> {
     private final Deque<E> workDequeue;
     private final Set<E> visited;
     private final Consumer<E> addElement;
     private final Function<E, Set<E>> getNeighbours;
     private Predicate<E> searchPredicate;
 
-    AbstractGraphSearch(Deque<E> workDequeue,
-                        Set<E> visited,
-                        Consumer<E> addElement,
-                        Function<E, Set<E>> getNeighbours) {
+    AbstractGraphAlgorithm(Deque<E> workDequeue,
+                           Set<E> visited,
+                           Consumer<E> addElement,
+                           Function<E, Set<E>> getNeighbours) {
         this.workDequeue = workDequeue;
         this.visited = visited;
         this.addElement = addElement;
         this.getNeighbours = getNeighbours;
     }
 
-    AbstractGraphSearch(Deque<E> workDequeue,
-                        Set<E> visited,
-                        Consumer<E> addElement,
-                        Function<E, Set<E>> getNeighbours,
-                        Predicate<E> searchPredicate) {
+    AbstractGraphAlgorithm(Deque<E> workDequeue,
+                           Set<E> visited,
+                           Consumer<E> addElement,
+                           Function<E, Set<E>> getNeighbours,
+                           Predicate<E> searchPredicate) {
         this(workDequeue, visited, addElement, getNeighbours);
         this.searchPredicate = searchPredicate;
     }

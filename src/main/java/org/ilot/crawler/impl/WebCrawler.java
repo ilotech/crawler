@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Set;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 
@@ -40,8 +41,13 @@ public class WebCrawler extends AbstractCrawler<String> {
     }
 
     public WebCrawler() {
-        super(new BFS<>(ExecutorServiceFactory.createCustomExecutorService(
-                ExecutorServiceType.FORK_JOIN_POOL, 0.98d), getNeighboursFunction, 5000L, 3000L)
+        super(new BFS<>(
+                ExecutorServiceFactory.createCustomExecutorService(ExecutorServiceType.FORK_JOIN_POOL, 0.98d),
+                getNeighboursFunction,
+                Function.identity(),
+                e -> true,
+                5000L,
+                3000L)
         );
     }
 

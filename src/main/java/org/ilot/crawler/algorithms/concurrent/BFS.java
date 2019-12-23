@@ -1,94 +1,28 @@
 package org.ilot.crawler.algorithms.concurrent;
 
-import org.ilot.crawler.algorithms.GraphAlgorithm;
-
-import java.util.Deque;
-import java.util.List;
-import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.*;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Phaser;
 import java.util.function.BiFunction;
-import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-public class BFS<E> implements GraphAlgorithm<E> {
-    private final ExecutorService executorService;
-    private final Deque<Node<E>> workDequeue;
-    private final Set<Node<E>> visited;
-
-    private final Consumer<Node<E>> addElement;
-    private final BiFunction<E, Long, Set<E>> getNeighbours;
-    private Predicate<Node<E>> searchPredicate;
-
-    private final long isEmptyTimeout;
-    private final long getNeighboursTimeout;
-
-    private final Lock lock = new ReentrantLock(true);
-    private final Condition isEmpty = lock.newCondition();
-
-    private volatile E searchResult;
-    private volatile boolean resultFound;
+public class BFS<E> extends AbstractGraphAlgorithm<E> {
 
     public BFS(ExecutorService executorService,
                BiFunction<E, Long, Set<E>> getNeighbours,
+               Function<E, E> transformElement,
+               Predicate<Node<E>> searchPredicate,
                long isEmptyTimeout,
                long getNeighboursTimeout) {
-        this.executorService = executorService;
-        this.workDequeue = new ConcurrentLinkedDeque<>();
-        this.visited = ConcurrentHashMap.newKeySet();
-        this.addElement = workDequeue::addLast;
-        this.getNeighbours = getNeighbours;
-        this.isEmptyTimeout = isEmptyTimeout;
-        this.getNeighboursTimeout = getNeighboursTimeout;
-        this.searchPredicate = n -> false;
+        super(executorService, getNeighbours, transformElement, searchPredicate, isEmptyTimeout, getNeighboursTimeout);
     }
 
-    public BFS(ExecutorService executorService,
-               BiFunction<E, Long, Set<E>> getNeighbours,
-               long isEmptyTimeout,
-               long getNeighboursTimeout,
-               Predicate<Node<E>> searchPredicate) {
-        this(executorService, getNeighbours, isEmptyTimeout, getNeighboursTimeout);
-        this.searchPredicate = searchPredicate;
-    }
-
-    @Override
-    public void traverse(E rootElement) {
-        workDequeue.add(Node.of(rootElement));
-        internalSearch();
-    }
-
-    // TODO revisit
-    @Override
-    public Optional<E> search(E rootElement) {
-        workDequeue.add(Node.of(rootElement));
-        internalSearch();
-        return resultFound ? Optional.of(searchResult) : Optional.empty();
-    }
-
-    @Override
-    public void continueTraversingFrom(List<E> elements) {
-        // TODO make sure list is sorted
-        workDequeue.addAll(elements.parallelStream().map(Node::of).collect(Collectors.toList()));
-        internalSearch();
-    }
-
-    @Override
-    public Optional<E> continueSearchingFrom(List<E> elements) {
-        // TODO make sure list is sorted
-        workDequeue.addAll(elements.parallelStream().map(Node::of).collect(Collectors.toList()));
-        internalSearch();
-        return resultFound ? Optional.of(searchResult) : Optional.empty();
-    }
-
-    private void internalSearch() {
+    protected void internalSearch() {
         Phaser phaser = new Phaser(1);
         while (awaitNotEmpty() && !resultFound) {
-            Node<E> node = workDequeue.poll();
+            Node<E> node = workDeque.poll();
             if (node == null) continue;
             phaser.register();
             executorService.execute(new Worker<>(this, node, phaser));
@@ -98,39 +32,11 @@ public class BFS<E> implements GraphAlgorithm<E> {
         executorService.shutdownNow();
     }
 
-    private boolean awaitNotEmpty() {
-        if (!workDequeue.isEmpty()) {
-            return true;
-        }
-        try {
-            lock.lock();
-            {
-                while (workDequeue.isEmpty()) {
-                    try {
-                        if (!isEmpty.await(isEmptyTimeout, TimeUnit.MILLISECONDS)) return false;
-                    } catch (InterruptedException ignored) {
-                        // nobody should interrupt the main thread
-                        return false;
-                    }
-                }
-                return true;
-            }
-        } catch (Exception ignored) {
-            // shouldn't be thrown
-            return false;
-        } finally {
-            lock.unlock();
-        }
-    }
-
-    private static class Worker<E> implements Runnable {
-        private final BFS<E> bfs;
-        private final Node<E> node;
+    private static class Worker<E> extends AbstractWorker<E> {
         private final Phaser phaser;
 
         private Worker(BFS<E> bfs, Node<E> node, Phaser phaser) {
-            this.bfs = bfs;
-            this.node = node;
+            super(bfs, node);
             this.phaser = phaser;
         }
 
@@ -138,43 +44,23 @@ public class BFS<E> implements GraphAlgorithm<E> {
         public void run() {
             try {
                 if (isResult(node)) return;
-                if (bfs.visited.contains(node)) return;
+                if (ga.visited.contains(ga.transformElement.apply(node.getElement()))) return;
                 if (Thread.currentThread().isInterrupted()) return;
-                bfs.getNeighbours.apply(node.getElement(), bfs.getNeighboursTimeout)
+                ga.getNeighbours.apply(node.getElement(), ga.getNeighboursTimeout)
                         .stream()
-                        .filter(e -> !bfs.visited.contains(Node.of(e)))
+                        .map(ga.transformElement)
+                        .filter(e -> !ga.visited.contains(e))
                         .map(e -> Node.of(e, node.getLevel() + 1))
                         .collect(Collectors.toSet())
-                        .forEach(bfs.addElement);
+                        .forEach(ga.addNode);
 
-                bfs.visited.add(node);
-                signalNotEmpty();
+                ga.visited.add(node.getElement());
+                Util.signalNotEmpty(ga.lock, ga.isEmpty);
             } catch (Exception e) {
                 // TODO rethrow
             } finally {
                 phaser.arriveAndDeregister();
             }
-        }
-
-        private void signalNotEmpty() {
-            try {
-                bfs.lock.lock();
-                bfs.isEmpty.signal();
-            } catch (IllegalMonitorStateException e) {
-                // shouldn't be thrown
-                // TODO rethrow
-            } finally {
-                bfs.lock.unlock();
-            }
-        }
-
-        private boolean isResult(Node<E> node) {
-            if (!bfs.searchPredicate.test(node)) {
-                return false;
-            }
-            bfs.resultFound = true;
-            bfs.searchResult = node.getElement();
-            return true;
         }
     }
 }

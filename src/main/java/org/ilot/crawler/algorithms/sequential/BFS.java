@@ -7,7 +7,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
-public class BFS<E> extends AbstractGraphSearch<E> {
+public class BFS<E> extends AbstractGraphAlgorithm<E> {
     private BFS(Deque<E> workDequeue, Set<E> visited, Function<E, Set<E>> getNeighboursFunction) {
         super(workDequeue, visited, workDequeue::addLast, getNeighboursFunction);
     }

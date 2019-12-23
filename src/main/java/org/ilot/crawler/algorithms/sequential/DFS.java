@@ -4,7 +4,7 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
-public class DFS<E> extends AbstractGraphSearch<E> {
+public class DFS<E> extends AbstractGraphAlgorithm<E> {
     private DFS(Deque<E> workDequeue, Set<E> visited, Function<E, Set<E>> getNeighboursFunction) {
         super(workDequeue, visited, workDequeue::addFirst, getNeighboursFunction);
     }

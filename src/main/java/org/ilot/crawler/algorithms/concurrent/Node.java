@@ -2,20 +2,20 @@ package org.ilot.crawler.algorithms.concurrent;
 
 import java.util.Objects;
 
-public class Node<E> {
+class Node<E> {
     private final E element;
     private final int level;
 
-    public Node(E element, int level) {
+    private Node(E element, int level) {
         this.element = element;
         this.level = level;
     }
 
-    public E getElement() {
+    E getElement() {
         return element;
     }
 
-    public int getLevel() {
+    int getLevel() {
         return level;
     }
 

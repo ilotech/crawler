@@ -7,7 +7,7 @@ import java.util.concurrent.locks.Lock;
 
 abstract class Util {
 
-    static <E>boolean awaitNotEmpty(Deque<Node<E>> workDeque, Lock lock, Condition isEmpty, long timeout) {
+    static <E> boolean awaitNotEmpty(Deque<Node<E>> workDeque, Lock lock, Condition isEmpty, long timeout) {
         if (!workDeque.isEmpty()) {
             return true;
         }

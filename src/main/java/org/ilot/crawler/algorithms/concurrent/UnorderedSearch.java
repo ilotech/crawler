@@ -11,7 +11,7 @@ public class UnorderedSearch<E> extends AbstractGraphAlgorithm<E> {
 
     public UnorderedSearch(ExecutorService executorService,
                            BiFunction<E, Long, Set<E>> getNeighbours,
-                           Function<E,E> transformElement,
+                           Function<E, E> transformElement,
                            Predicate<Node<E>> searchPredicate,
                            long isEmptyTimeout,
                            long getNeighboursTimeout) {

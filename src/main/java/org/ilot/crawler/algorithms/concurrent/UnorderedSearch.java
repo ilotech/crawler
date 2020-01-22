@@ -56,7 +56,7 @@ public class UnorderedSearch<E> extends AbstractGraphAlgorithm<E> {
             if (nodes.stream().anyMatch(this::isResult)) return;
             nodes.forEach(ga.addNode);
             ga.visited.add(node.getElement());
-            Util.signalNotEmpty(ga.lock, ga.isEmpty);
+            signalNotEmpty(ga.lock, ga.isEmpty);
         }
     }
 }

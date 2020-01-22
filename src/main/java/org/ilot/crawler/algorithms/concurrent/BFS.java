@@ -55,7 +55,7 @@ public class BFS<E> extends AbstractGraphAlgorithm<E> {
                         .forEach(ga.addNode);
 
                 ga.visited.add(node.getElement());
-                Util.signalNotEmpty(ga.lock, ga.isEmpty);
+                signalNotEmpty(ga.lock, ga.isEmpty);
             } catch (Exception e) {
                 // TODO rethrow
             } finally {

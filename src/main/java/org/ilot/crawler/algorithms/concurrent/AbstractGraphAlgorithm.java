@@ -9,6 +9,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -84,7 +85,28 @@ public abstract class AbstractGraphAlgorithm<E> implements GraphAlgorithm<E> {
     }
 
     protected boolean awaitNotEmpty() {
-        return Util.awaitNotEmpty(workDeque, lock, isEmpty, isEmptyTimeout);
+        if (!workDeque.isEmpty()) {
+            return true;
+        }
+        try {
+            lock.lock();
+            {
+                while (workDeque.isEmpty()) {
+                    try {
+                        if (!isEmpty.await(isEmptyTimeout, TimeUnit.MILLISECONDS)) return false;
+                    } catch (InterruptedException ignored) {
+                        // nobody should interrupt the main thread
+                        return false;
+                    }
+                }
+                return true;
+            }
+        } catch (Exception ignored) {
+            // shouldn't be thrown
+            return false;
+        } finally {
+            lock.unlock();
+        }
     }
 
     protected abstract static class AbstractWorker<E> implements Runnable {
@@ -94,6 +116,18 @@ public abstract class AbstractGraphAlgorithm<E> implements GraphAlgorithm<E> {
         protected AbstractWorker(AbstractGraphAlgorithm<E> ga, Node<E> node) {
             this.ga = ga;
             this.node = node;
+        }
+
+        protected void signalNotEmpty(Lock lock, Condition isEmpty) {
+            try {
+                lock.lock();
+                isEmpty.signal();
+            } catch (IllegalMonitorStateException e) {
+                // shouldn't be thrown
+                // TODO rethrow
+            } finally {
+                lock.unlock();
+            }
         }
 
         protected boolean isResult(Node<E> node) {
